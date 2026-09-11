@@ -135,7 +135,7 @@ accessibility tree.
 ## Building and testing
 
 ```
-cd C:\git-src\notebook
+cd C:\git-src\life-web
 python test_forms.py
 python -m PyInstaller --onefile --name Life_Web --console --clean --noconfirm --exclude-module tkinter forms.py
 ```
