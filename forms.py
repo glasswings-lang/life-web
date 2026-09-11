@@ -38,6 +38,7 @@ import kinds
 import links
 import editing
 import markup
+import notes
 import ways
 import wiki
 
@@ -812,6 +813,17 @@ class Handler(BaseHTTPRequestHandler):
                       TYPES[".html"])
             return
 
+        if route in ("/notes", "/notes/"):
+            q = parse_qs(urlparse(self.path).query)
+            rel = q.get("page", [""])[0]
+            if safe(rel) is None or not safe(rel).is_file():
+                self.missing(rel)
+                return
+            self.send(wiki.notes_page(folder().resolve(), rel,
+                                      q.get("said", [""])[0]).encode("utf-8"),
+                      TYPES[".html"])
+            return
+
         if route in ("/here", "/here/", "/remove", "/remove/"):
             q = parse_qs(urlparse(self.path).query)
             rel = q.get("page", [""])[0]
@@ -1091,6 +1103,77 @@ class Handler(BaseHTTPRequestHandler):
                     trouble = "That page could not be written to."
             self.go("/edit?page=" + quote(rel) + "&said="
                     + quote(trouble or "That piece was saved."))
+            return
+
+        if route in ("/movenote", "/sortnotes"):
+            f = self.form_fields()
+            rel = f.get("page", "")
+            path = safe(rel)
+            if path is None or not path.is_file():
+                self.send(problem_page("That is not a page in your folder.",
+                                       "/"), TYPES[".html"])
+                return
+            was = read_text(path)
+            new, trouble = was, ""
+            if was is None:
+                trouble = "That page could not be read, so nothing was moved."
+            elif f.get("seen", "") != notes.fingerprint(was):
+                # The numbers in the form were counted on the page as it
+                # was. If it has changed since, they may name other notes.
+                trouble = ("The page has changed since this list was made, "
+                           "so nothing was moved. The list below is the page "
+                           "as it is now.")
+            elif route == "/movenote":
+                try:
+                    n = int(f.get("n", "-1"))
+                except ValueError:
+                    n = -1
+                to = f.get("to", "")
+                new, trouble = notes.move(was, n, to)
+                if trouble:
+                    said = ""
+                elif new == was:
+                    said = "That note was already there, so nothing changed."
+                else:
+                    said = notes.said_after_move(notes.find(was), n, to)
+            else:
+                newest = f.get("order", "") != "oldest"
+                order = "newest first" if newest else "oldest first"
+                new, undated = notes.sort(was, newest)
+                said = ("The notes were already in date order, " + order
+                        + ", so nothing changed." if new == was else
+                        "Every note is in date order now, " + order + ".")
+                if undated == 1:
+                    said += (" One note has no date that could be read. It is "
+                             "at the end.")
+                elif undated:
+                    said += (" " + str(undated) + " notes have no date that "
+                             "could be read. They are at the end, in the "
+                             "order they were already in.")
+            if not trouble and new != was:
+                if not write_text(path.with_name(path.name + ".bak"), was):
+                    trouble = ("The previous version could not be kept, so "
+                               "nothing was changed.")
+                elif not write_text(path, new):
+                    trouble = "That page could not be written to."
+            self.go("/notes?page=" + quote(rel) + "&said="
+                    + quote(trouble or said))
+            return
+
+        if route == "/notesundo":
+            f = self.form_fields()
+            rel = f.get("page", "")
+            if safe(rel) is None:
+                self.send(problem_page("That is not a page in your folder.",
+                                       "/"), TYPES[".html"])
+                return
+            trouble = wiki.undo_edit(folder().resolve(), rel,
+                                     read_text, write_text)
+            self.go("/notes?page=" + quote(rel) + "&said="
+                    + quote(trouble or ("Put back. The version you just "
+                                        "replaced is now the kept one, so "
+                                        "pressing it again swaps them "
+                                        "round.")))
             return
 
         if route == "/makewritable":

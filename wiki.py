@@ -27,6 +27,7 @@ from urllib.parse import quote
 
 import editing
 import links
+import notes
 
 # [[like this]]. No nesting, no brackets inside.
 FLAG_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
@@ -349,6 +350,13 @@ def with_tools(text, rel=""):
     if rel:
         tools += "\n" + EDIT_LINK.format(
             rel=html.escape(quote(rel), quote=True))
+        # Only offered where there is something to move. A link to a
+        # page that says "nothing here" is one more thing read out on
+        # every page for no reason.
+        if len(notes.find(text)) > 1:
+            tools += ('\n<a href="/notes?page='
+                      + html.escape(quote(rel), quote=True)
+                      + '">Move or sort notes</a>')
     # At the END of an existing nav, not the start. The links a page
     # already had are the ones about where you are - back to the
     # section, back to the top. Those should be read first; these are
@@ -422,7 +430,11 @@ def pieces_page(root, page_rel, said=""):
                  + html.escape(quote(page_rel), quote=True)
                  + '">What links to this page, and what it links to</a>'
                  "</li>\n"
-                 '<li><a href="/remove?page='
+                 + (('<li><a href="/notes?page='
+                     + html.escape(quote(page_rel), quote=True)
+                     + '">Move notes about, or put them in date order</a>'
+                     "</li>\n") if len(notes.find(text)) > 1 else "")
+                 + '<li><a href="/remove?page='
                  + html.escape(quote(page_rel), quote=True)
                  + '">Put this page away</a></li>\n'
                  '<li><a href="/' + html.escape(quote(page_rel), quote=True)
@@ -555,6 +567,81 @@ def here_page(root, page_rel, said=""):
     parts.append('<p><a href="/' + html.escape(quote(page_rel), quote=True)
                  + '">Back to the page itself</a></p>')
     return frame("What links to " + html.escape(page_rel),
+                 "\n\n".join(parts))
+
+
+def notes_page(root, page_rel, said=""):
+    """Every note on a page, each with somewhere to send it.
+
+    A plain list and one Move button per note, so a note goes anywhere
+    in one press instead of being nudged up a place at a time. The
+    date-order buttons come first, because putting everything in order
+    is the bigger job.
+    """
+    text = links._read(root / page_rel)
+    if text is None:
+        return frame("Cannot move notes on that", "<p>There is no page at "
+                     + html.escape(page_rel) + ".</p>")
+    found = notes.find(text)
+    keep = ('<input type="hidden" name="page" value="'
+            + html.escape(page_rel, quote=True) + '">\n'
+            '<input type="hidden" name="seen" value="'
+            + notes.fingerprint(text) + '">\n')
+    parts = []
+    if said:
+        parts.append('<p id="said">' + html.escape(said) + "</p>")
+
+    if not found:
+        parts.append("<p>There are no notes on " + html.escape(page_rel)
+                     + " yet, so there is nothing to move. A note is what "
+                     "Add to this page leaves, with its date on it.</p>")
+    elif len(found) == 1:
+        parts.append("<p>There is only one note on " + html.escape(page_rel)
+                     + ", so there is nothing to move it past.</p>")
+    else:
+        parts.append(
+            "<p>There are " + str(len(found)) + " notes on "
+            + html.escape(page_rel) + ". A note moves as one piece: its date "
+            "and everything written under it. Nothing else on the page "
+            "changes.</p>")
+        parts.append(
+            '<form method="post" action="/sortnotes">\n<fieldset>\n'
+            "<legend>Put every note in date order</legend>\n" + keep
+            + '<button type="submit" name="order" value="newest">Newest '
+            "first</button>\n"
+            '<button type="submit" name="order" value="oldest">Oldest '
+            "first</button>\n</fieldset>\n</form>")
+        for n, note in enumerate(found):
+            me = "to" + str(n)
+            called = ("the " + note["when"] + " note" if note["when"]
+                      else "this note")
+            parts.append(
+                '<form method="post" action="/movenote">\n'
+                "<h2>" + html.escape(notes.label(note)) + "</h2>\n" + keep
+                + '<input type="hidden" name="n" value="' + str(n) + '">\n'
+                '<label for="' + me + '">Move ' + html.escape(called)
+                + " to</label>\n"
+                '<select id="' + me + '" name="to">\n'
+                '<option value="">(choose where)</option>\n'
+                + "".join('<option value="' + html.escape(v, quote=True)
+                          + '">' + html.escape(w) + "</option>\n"
+                          for v, w in notes.choices(found, n))
+                + "</select>\n"
+                '<button type="submit">Move</button>\n</form>')
+
+    if (root / (page_rel + ".bak")).exists():
+        parts.append(
+            "<h2>Put it back</h2>\n<p>The page as it was before the last "
+            "move, sort or whole-page save is kept beside it. Pressing this "
+            "swaps them round, so pressing it again undoes the undo.</p>\n"
+            '<form method="post" action="/notesundo">\n'
+            '<input type="hidden" name="page" value="'
+            + html.escape(page_rel, quote=True) + '">\n'
+            '<button type="submit">Go back to the previous version</button>\n'
+            "</form>")
+    parts.append('<p><a href="/' + html.escape(quote(page_rel), quote=True)
+                 + '">Back to the page itself</a></p>')
+    return frame("Moving notes on " + html.escape(page_rel),
                  "\n\n".join(parts))
 
 

@@ -24,6 +24,18 @@ These went in first, as their own small change, before the rest of the plan:
 - A line break you type stays a line break.
 - A heading typed mid-paragraph is lifted out of the paragraph.
 
+Then moving and sorting notes:
+
+- A page with two or more notes gets a "Move or sort notes" link. It is added as the page is served,
+  never written into the file.
+- Each note there has a "Move this note to" list: the top, the bottom, or after another named note.
+  Pick one and press Move once. The note moves whole, with its date and everything under it.
+- "Newest first" and "Oldest first" put every note in date order. Anything between notes stays in
+  its gap. Notes from the same minute keep their order, and a note with no readable date goes last.
+- The page as it was is kept beside it as a .bak file, and "Go back to the previous version" swaps
+  them round.
+- If the page changed after the list was shown, nothing is moved and the fresh list is shown.
+
 ## Agreed so far
 
 **Say what a piece is before typing it.** Next to the note box is a choice of paragraph, heading,
@@ -38,20 +50,13 @@ single `#` still stops at level 2, so the page title stays the only level 1.
 
 **Anyone who knows HTML or Markdown can still type it** and it works. Nobody has to.
 
-**Notes move as whole units.** A saved note keeps its time stamp and everything under it. Each note
-gets a "move this to" list: the top of the page, the bottom of the page, or after a named note. Pick
-one and press Move once. The note list is a plain dropdown and a plain button, so no JavaScript and no
-pressing Move Up twenty times.
-
-**A sort button** puts every note in order by its time stamp, newest first or oldest first. It
-rearranges the file itself, so the file stays the record, just tidier.
+**A chosen heading can be any level from 1 to 6.** The choice lists them all by number. HTML has no
+level beyond 6.
 
 ## Still to decide
 
 - Whether tags typed in the note box become real HTML. The suggestion is yes, with scripts,
   styles, event attributes and `javascript:` links still blocked.
-- A heading picked from the choice: which level? One option is "heading" and "smaller heading".
-  Another is taking the level below the heading before it.
 - Whether pieces outside notes, meaning things typed straight into a page, need a way to move too.
   Notes first.
 - Whether a numbered list is its own choice or a tick box beside "list".
