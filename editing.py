@@ -181,7 +181,7 @@ def rewrite(text, n, words, top=2):
     return text[:start] + body + text[end:], ""
 
 
-def insert_after(text, n, words, top=2):
+def insert_after(text, n, words, top=2, kind="paragraph"):
     """Put new writing straight after one piece. Returns (new, trouble).
 
     This is what the marker in the file used to be for - choosing where
@@ -197,4 +197,5 @@ def insert_after(text, n, words, top=2):
     if not words:
         return None, "Nothing was typed, so nothing was added."
     end = found[n][5]
-    return text[:end] + "\n" + markup.to_html(words, top) + text[end:], ""
+    return (text[:end] + "\n" + markup.as_piece(words, kind, top)
+            + text[end:], "")

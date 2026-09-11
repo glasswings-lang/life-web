@@ -300,6 +300,48 @@ def to_html(text, top=2):
     return restore("\n".join(out), kept)
 
 
+# What the "What is it?" box on the Add page offers, in the order it lists
+# them. The first is what you get if you choose nothing.
+PIECES = ([("paragraph", "Paragraph")]
+          + [("h%d" % n, "Heading level %d" % n) for n in range(1, 7)]
+          + [("ul", "Bulleted list"), ("ol", "Numbered list"),
+             ("quote", "Quote")])
+
+BULLET_MARK_RE = re.compile(r"^\s*[-*+]\s+")
+NUMBER_MARK_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+
+
+def as_piece(text, kind="paragraph", top=2):
+    """What you typed, as the kind of piece you said it was.
+
+    Paragraph is the note box as it has always been: plain typing, and
+    marks or tags if you use them. The others let you say what a thing is
+    instead of knowing a mark for it.
+
+    A heading is the words on one line, at the level you picked, 1 included.
+    A list is one item per line you typed. A mark you typed at the start of
+    a line anyway is taken off, so a numbered list never reads "1. 1.".
+    A quote can hold paragraphs, the same as the note box.
+    """
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+    if re.fullmatch(r"h[1-6]", kind or ""):
+        return ("<" + kind + ">" + inline(html.escape(" ".join(text.split())))
+                + "</" + kind + ">")
+    if kind in ("ul", "ol"):
+        mark = BULLET_MARK_RE if kind == "ul" else NUMBER_MARK_RE
+        items = [mark.sub("", line, count=1).strip()
+                 for line in text.split("\n") if line.strip()]
+        return ("<" + kind + ">\n"
+                + "".join("<li>" + inline(html.escape(item)) + "</li>\n"
+                          for item in items if item)
+                + "</" + kind + ">")
+    if kind == "quote":
+        return "<blockquote>\n" + to_html(text, top) + "\n</blockquote>"
+    return to_html(text, top)
+
+
 HEADING_TAG_RE = re.compile(r"<h([1-6])\b", re.I)
 
 

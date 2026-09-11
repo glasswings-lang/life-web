@@ -36,11 +36,17 @@ Then moving and sorting notes:
   them round.
 - If the page changed after the list was shown, nothing is moved and the fresh list is shown.
 
-## Agreed so far
+Then saying what a piece is before typing it:
 
-**Say what a piece is before typing it.** Next to the note box is a choice of paragraph, heading,
-list, or quote. Pick one, type the words, save. No marks to remember and nothing to select. For a
-list, each line typed becomes one item. It's a visible control, following "simple is gold".
+- The Add page asks "What is it?" before the note box. The choices are Paragraph, Heading level 1 to
+  6, Bulleted list, Numbered list and Quote, in one box.
+- Paragraph is first, and is the note box as it always was, marks and tags included.
+- A heading is the words typed, on one line. A list is one item per line typed. A numbered list gets
+  its numbers from the page, and one number typed at the start of a line is taken off. A quote can
+  hold paragraphs.
+- It works for adding at the end of a page and for adding after a chosen piece.
+
+## Agreed so far
 
 **Line breaks stay where they were typed.** A blank line still starts a new paragraph. A single line
 break becomes a real line break, the way WordPress does it.
@@ -50,16 +56,19 @@ single `#` still stops at level 2, so the page title stays the only level 1.
 
 **Anyone who knows HTML or Markdown can still type it** and it works. Nobody has to.
 
+**Everything that can be written can be moved**, not only notes. Writing put straight onto a page
+moves too.
+
 **A chosen heading can be any level from 1 to 6.** The choice lists them all by number. HTML has no
 level beyond 6.
+
+**Bulleted list and numbered list are two options in the same box**, not a tick box. For a numbered
+list the page adds the numbers, so they are not typed.
 
 ## Still to decide
 
 - Whether tags typed in the note box become real HTML. The suggestion is yes, with scripts,
   styles, event attributes and `javascript:` links still blocked.
-- Whether pieces outside notes, meaning things typed straight into a page, need a way to move too.
-  Notes first.
-- Whether a numbered list is its own choice or a tick box beside "list".
 
 ## Rules this has to keep
 

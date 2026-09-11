@@ -164,7 +164,7 @@ def safe(name):
     return p
 
 
-def shape_from(page_text, values, top=2):
+def shape_from(page_text, values, top=2, kind="paragraph"):
     """Build the block to insert.
 
     Uses the <template> in your own page if there is one, so the shape is
@@ -188,7 +188,7 @@ def shape_from(page_text, values, top=2):
         # done by swapping the wrapper instead of asking every page to
         # be edited.
         if "note" in values:
-            body = markup.to_html(values["note"], top)
+            body = markup.as_piece(values["note"], kind, top)
             if NOTE_P_RE.search(block):
                 block = NOTE_P_RE.sub(lambda _m: body, block, count=1)
             else:
@@ -1072,7 +1072,7 @@ class Handler(BaseHTTPRequestHandler):
             was = read_text(path)
             new, trouble = editing.insert_after(
                 was, n, f.get("note", ""),
-                markup.level_at(was, "<!-- here -->"))
+                markup.level_at(was, "<!-- here -->"), f.get("_as", ""))
             if not trouble and not write_text(path, new):
                 trouble = "That page could not be written to."
             if trouble:
@@ -1371,6 +1371,9 @@ class Handler(BaseHTTPRequestHandler):
         # Read before the loop below strips every underscore field, or
         # this would be thrown away before anything could act on it.
         field_id = fields.pop("_set", "")
+        # What the writer said this is - a heading, a list - from the box
+        # before the note box. Same reason as _set for reading it here.
+        kind = fields.pop("_as", "")
         for key in list(fields):
             if key.startswith("_"):
                 fields.pop(key)
@@ -1461,7 +1464,7 @@ class Handler(BaseHTTPRequestHandler):
         page = read_text(path)
         trouble = insert(path, marker,
                          shape_from(page, values,
-                                    markup.level_at(page, marker)))
+                                    markup.level_at(page, marker), kind))
         if trouble:
             self.send(problem_page(trouble,
                                    self.headers.get("Referer") or "/"),

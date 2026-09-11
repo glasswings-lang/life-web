@@ -27,6 +27,7 @@ from urllib.parse import quote
 
 import editing
 import links
+import markup
 import notes
 
 # [[like this]]. No nesting, no brackets inside.
@@ -483,8 +484,18 @@ of the page, and after that this page takes writing like any other.</p>
         + html.escape(page_rel, quote=True) + '">\n'
         '<input type="hidden" name="_back" value="/'
         + html.escape(page_rel, quote=True) + '">\n'
+        # Asked before the box, because you know what a thing is before
+        # you type it. Paragraph is first, so choosing nothing changes
+        # nothing about how the box has always worked.
+        '<label for="note-as">What is it?</label>\n'
+        '<select id="note-as" name="_as">\n'
+        + "".join('<option value="' + value + '">' + words + "</option>\n"
+                  for value, words in markup.PIECES)
+        + "</select>\n"
         '<label for="note-box">What do you want to say?</label>\n'
         '<textarea id="note-box" name="note" rows="10"></textarea>\n'
+        "<p>For a list, each line you type is one item. A numbered list "
+        "gets its numbers added for you.</p>\n"
         "<p>Put &#91;&#91;double brackets&#93;&#93; round anything you want "
         "to link later. It stays visible until you deal with it, on the "
         "Loose ends page.</p>\n"
