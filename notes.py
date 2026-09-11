@@ -109,6 +109,7 @@ def choices(found, n):
     for m, other in enumerate(found):
         if m != n and m != n - 1:
             out.append(("after:" + str(m), "After " + label(other)))
+    out.append(("away", "Put it away"))
     return out
 
 

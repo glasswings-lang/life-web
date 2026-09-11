@@ -39,7 +39,7 @@ import markup
 # What counts as a piece you can edit. Everything else on a page is
 # either machinery or belongs to the whole page rather than a part.
 BLOCK_RE = re.compile(
-    r"<(p|h[2-6]|ul|ol|blockquote)\b([^>]*)>(.*?)</\1>", re.S | re.I)
+    r"<(p|h[1-6]|ul|ol|blockquote)\b([^>]*)>(.*?)</\1>", re.S | re.I)
 
 # Never offered: the parts of the page that are not writing.
 SKIP_RE = re.compile(
@@ -75,7 +75,13 @@ def blocks(text):
     """
     hidden = SKIP_RE.sub(lambda m: " " * (m.end() - m.start()), text or "")
     out = []
+    # The first level 1 heading is the page's own name, not writing. Any
+    # other one was chosen from the Add page, and is a piece like the rest.
+    title = True
     for m in BLOCK_RE.finditer(hidden):
+        if m.group(1).lower() == "h1" and title:
+            title = False
+            continue
         if m.group(2).strip().startswith("class=\"when\""):
             continue                       # a timestamp, not writing
         if 'class="when"' in m.group(2):

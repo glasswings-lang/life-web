@@ -38,7 +38,9 @@ import kinds
 import links
 import editing
 import markup
+import moving
 import notes
+import restore
 import ways
 import wiki
 
@@ -788,9 +790,8 @@ class Handler(BaseHTTPRequestHandler):
             '<li>If you remember any of the words in it, '
             '<a href="/search">Find something</a> reads every page each time '
             "you ask.</li>\n"
-            "<li>If you put it away, it is in the <code>_deleted</code> "
-            "folder beside your pages. Nothing is destroyed; getting it back "
-            "is moving the file out again.</li>\n"
+            '<li>If you put it away, <a href="/putaway">Put away</a> lists '
+            "it, with a button to bring it back. Nothing is destroyed.</li>\n"
             "<li>If you moved it by hand outside the program, putting it back "
             "where it was is enough - this page will simply be here "
             "again.</li>\n"
@@ -808,9 +809,20 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if route in ("/search", "/search/"):
-            q = parse_qs(urlparse(self.path).query).get("q", [""])[0]
-            self.send(wiki.search_page(folder().resolve(), q).encode("utf-8"),
-                      TYPES[".html"])
+            asked = parse_qs(urlparse(self.path).query)
+            self.send(wiki.search_page(
+                folder().resolve(), asked.get("q", [""])[0],
+                bool(asked.get("together", [""])[0]),
+                asked.get("folder", [""])[0], asked.get("kind", [""])[0],
+                asked.get("from", [""])[0], asked.get("to", [""])[0],
+                asked.get("page", [""])[0]).encode("utf-8"), TYPES[".html"])
+            return
+
+        if route in ("/putaway", "/putaway/"):
+            q = parse_qs(urlparse(self.path).query)
+            self.send(wiki.putaway_page(
+                folder().resolve(), q.get("said", [""])[0],
+                q.get("folder", [""])[0]).encode("utf-8"), TYPES[".html"])
             return
 
         if route in ("/notes", "/notes/"):
@@ -940,16 +952,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send(raw, TYPES.get(path.suffix.lower(),
                                  "application/octet-stream"))
 
-    def form_fields(self):
+    def form_all(self):
+        """Every value the form sent, as lists. A tick box ticked on
+        several pieces sends its name once for each of them."""
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
         if length <= 0 or length > 5_000_000:
             return {}
-        return {k: v[0] for k, v in parse_qs(
-            self.rfile.read(length).decode("utf-8", "replace"),
-            keep_blank_values=True).items()}
+        return parse_qs(self.rfile.read(length).decode("utf-8", "replace"),
+                        keep_blank_values=True)
+
+    def form_fields(self):
+        return {k: v[0] for k, v in self.form_all().items()}
 
     def do_POST(self):
         route = urlparse(self.path).path
@@ -1129,13 +1145,22 @@ class Handler(BaseHTTPRequestHandler):
                 except ValueError:
                     n = -1
                 to = f.get("to", "")
-                new, trouble = notes.move(was, n, to)
-                if trouble:
-                    said = ""
-                elif new == was:
-                    said = "That note was already there, so nothing changed."
+                if to == "away":
+                    # Kept in a file of its own, date and all, and taken
+                    # off the page there; nothing is left to write here.
+                    new = was
+                    said = moving.away_note(folder().resolve(), rel, n,
+                                            read_text, write_text,
+                                            datetime.now().strftime(STAMP))
                 else:
-                    said = notes.said_after_move(notes.find(was), n, to)
+                    new, trouble = notes.move(was, n, to)
+                    if trouble:
+                        said = ""
+                    elif new == was:
+                        said = ("That note was already there, so nothing "
+                                "changed.")
+                    else:
+                        said = notes.said_after_move(notes.find(was), n, to)
             else:
                 newest = f.get("order", "") != "oldest"
                 order = "newest first" if newest else "oldest first"
@@ -1156,8 +1181,114 @@ class Handler(BaseHTTPRequestHandler):
                                "nothing was changed.")
                 elif not write_text(path, new):
                     trouble = "That page could not be written to."
-            self.go("/notes?page=" + quote(rel) + "&said="
-                    + quote(trouble or said))
+            # An empty note is put away from the Edit page, so that is
+            # where it goes back to.
+            back = "/edit?page=" if f.get("from", "") == "edit" else "/notes?page="
+            self.go(back + quote(rel) + "&said=" + quote(trouble or said))
+            return
+
+        if route in ("/movepiece", "/movepieces"):
+            # One piece from the list under it, or every piece picked
+            # for the list at the bottom. Both go the same way from here.
+            every = self.form_all()
+            f = {k: v[0] for k, v in every.items()}
+            rel = f.get("page", "")
+            path = safe(rel)
+            if path is None or not path.is_file():
+                self.send(problem_page("That is not a page in your folder.",
+                                       "/"), TYPES[".html"])
+                return
+            root = folder().resolve()
+            if route == "/movepiece":
+                n = f.get("n", "")
+                picks = [int(n) if n.isdigit() else -1]
+            else:
+                picks = [int(p) for p in every.get("pick", []) if p.isdigit()]
+            whole = route == "/movepiece" and f.get("what", "") == "section"
+            to = f.get("to", "")
+            fresh = f.get("newpage", "").strip()
+            was = read_text(path)
+            if was is None:
+                said = "That page could not be read, so nothing was moved."
+            elif f.get("seen", "") != notes.fingerprint(was):
+                # The number in the form was counted on the page as it
+                # was. If it has changed since, it may name another piece.
+                said = ("The page has changed since that was shown, so "
+                        "nothing was moved. This is the page as it is now.")
+            elif not picks:
+                said = moving.NOTHING
+            elif to == "away":
+                said = moving.away(root, rel, picks, whole, read_text,
+                                   write_text, datetime.now().strftime(STAMP))
+            elif to.startswith("onto:") or (not to and fresh):
+                # A place chosen from the list wins. With nothing chosen, a
+                # typed name makes a page beside this one, so wanting a page
+                # that does not exist yet never stops the move.
+                target = to[5:]
+                said = ""
+                if not target:
+                    where = rel.rsplit("/", 1)[0] if "/" in rel else ""
+                    target, why = wiki.make_page(root, fresh, where,
+                                                 kinds.slug, write_text)
+                    if why and not target:
+                        said = why
+                if not said:
+                    if not target:
+                        said = ("No page was chosen and no new page was "
+                                "named, so nothing was moved.")
+                    elif safe(target) is None or not safe(target).is_file():
+                        said = "There is no page at " + target + "."
+                    else:
+                        said = moving.onto(root, rel, picks, whole, target,
+                                           "bottom", read_text, write_text)
+            else:
+                said = moving.within(root, rel, picks, whole, to,
+                                     read_text, write_text)
+            self.go("/edit?page=" + quote(rel) + "&said=" + quote(said))
+            return
+
+        if route == "/bringback":
+            f = self.form_fields()
+            root = folder().resolve()
+            kind, item = f.get("kind", ""), f.get("item", "")
+            back = "/putaway"
+            if kind == "folder":
+                trouble = restore.bring_folder(root, item)
+                said = trouble or ("The folder " + item + " is back, with "
+                                   "everything in it.")
+            elif kind == "page":
+                to, trouble = restore.bring_page(root, item, f.get("to", ""),
+                                                 read_text, write_text)
+                said = trouble or (links.title_of(root, to) + " is back.")
+                if f.get("folder", ""):
+                    back = "/putaway?folder=" + quote(f["folder"])
+            elif kind == "writing":
+                # A chosen page wins. Otherwise a typed name makes one, so
+                # wanting a page that does not exist yet never stops it.
+                target = f.get("target", "")
+                fresh = f.get("newpage", "").strip()
+                said = ""
+                if not target and fresh:
+                    target, why = wiki.make_page(root, fresh, "", kinds.slug,
+                                                 write_text)
+                    if why and not target:
+                        said = why
+                if said:
+                    pass
+                elif not target:
+                    said = ("No page was chosen and no new page was named, so "
+                            "nothing was brought back.")
+                elif safe(target) is None or not safe(target).is_file():
+                    said = "There is no page at " + target + "."
+                else:
+                    said = (restore.bring_writing(root, item, target,
+                                                  read_text, write_text)
+                            or ("It is back, at the bottom of "
+                                + links.title_of(root, target) + "."))
+            else:
+                said = "That is not something that can be brought back."
+            self.go(back + ("&" if "?" in back else "?") + "said="
+                    + quote(said))
             return
 
         if route == "/notesundo":

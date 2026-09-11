@@ -122,11 +122,15 @@ check("a note with another class beside addition is still a note",
 
 check("the first note is not offered the top",
       [v for v, _w in notes.choices(found, 0)], ["bottom", "after:1",
-                                                  "after:2"])
+                                                  "after:2", "away"])
 check("the last note is not offered the bottom",
-      [v for v, _w in notes.choices(found, 2)], ["top", "after:0"])
+      [v for v, _w in notes.choices(found, 2)], ["top", "after:0", "away"])
 check("no note is offered to go after itself or where it already is",
-      [v for v, _w in notes.choices(found, 1)], ["top", "bottom", "after:2"])
+      [v for v, _w in notes.choices(found, 1)],
+      ["top", "bottom", "after:2", "away"])
+check("every note can be put away, last in its list",
+      [notes.choices(found, k)[-1] for k in range(3)],
+      [("away", "Put it away")] * 3)
 
 
 # --- moving -------------------------------------------------------------
@@ -285,9 +289,19 @@ check("it opens by saying what page it is",
 check("date order comes before the notes",
       [t for t in r.order if t[0] in ("legend", "h2")][:2],
       [("legend", "Put every note in date order"),
-       ("h2", "2026-09-03 10:00, Third note words.")])
-check("a box says which note it moves",
-      ("label", "Move the 2026-09-01 09:00 note to") in r.order, True)
+       ("legend", "2026-09-03 10:00, Third note words.")])
+check("each note's box is in a group named after the note",
+      [t for t in r.order if t[0] == "legend"][1:],
+      [("legend", "2026-09-03 10:00, Third note words."),
+       ("legend", "2026-09-01 09:00, A heading in the first note First note "
+        "words. Inside"),
+       ("legend", "2026-09-02 12:30, Second note words.")])
+check("every Move button has a sentence before it saying what pressing does",
+      wiki.notes_page(root, "first-page.html").count(
+          "<p>Pressing this moves the note where you chose."), 3)
+check("and so do the date order buttons",
+      "<p>Pressing one of these puts every note in date order" in
+      wiki.notes_page(root, "first-page.html"), True)
 
 print("\n  The controls page, in reading order:")
 for tag, words in r.order:
@@ -403,6 +417,18 @@ url, body = post("/sortnotes", {"page": "first-page.html", "seen": seen(),
                                 "order": "newest"})
 check("sorting an already sorted page says nothing changed",
       "already in date order" in body, True)
+url, body = post("/movenote", {"page": "first-page.html", "seen": seen(),
+                               "n": "0", "to": "away"})
+check("Put it away on a note keeps it in a file of its own",
+      len(list((root / "_deleted" / "pieces").glob("first-page-*.html"))), 1)
+check("and takes it off the page, date and all", len(notes.find(on_disk())),
+      2)
+check("and lands back on the notes page", "/notes?page=first-page.html" in url,
+      True)
+url, body = post("/movenote", {"page": "first-page.html", "seen": seen(),
+                               "n": "0", "to": "away", "from": "edit"})
+check("sent from the Edit page, it lands back on the Edit page",
+      "/edit?page=first-page.html" in url, True)
 check("nothing was logged as going wrong",
       (root / forms.LOG_NAME).exists(), False)
 

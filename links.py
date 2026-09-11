@@ -497,6 +497,12 @@ def repairs_page(root, said=""):
                                for p, t in orphans) + "</ul>")
 
     parts.append(
+        "<h2>Put away</h2>\n"
+        "<p>Pages and writing that were put away are kept, not deleted. The "
+        '<a href="/putaway">Put away</a> page lists them, with a button to '
+        "bring each one back.</p>")
+
+    parts.append(
         "<h2>Move or rename a page</h2>\n"
         "<p>This moves the file and rewrites every address on both sides: "
         "links pointing at it, links inside it, its stylesheet, and the "

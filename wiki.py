@@ -23,12 +23,15 @@ They are no longer the way in.
 
 import html
 import re
+from datetime import datetime
 from urllib.parse import quote
 
 import editing
 import links
 import markup
+import moving
 import notes
+import restore
 
 # [[like this]]. No nesting, no brackets inside.
 FLAG_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
@@ -372,6 +375,108 @@ def with_tools(text, rel=""):
             + text[m.end():])
 
 
+def pick_box(n):
+    """Ticked to move this piece along with others. It belongs to the form
+    at the bottom of the page wherever it sits, so it can go inside the
+    group for the piece it picks."""
+    return ('<input type="checkbox" form="bulk" id="pick' + str(n)
+            + '" name="pick" value="' + str(n) + '">\n'
+            '<label for="pick' + str(n) + '">Pick this one</label>\n')
+
+
+def bulk_form(pieces, page_rel, others, seen):
+    """One list and one button for every piece picked on the page.
+
+    Laid out like Move a page on the Repairs page: a heading, then a
+    named group, a sentence saying what pressing does, and the button.
+    """
+    spots = [("top", "The top of this page"),
+             ("bottom", "The bottom of this page")]
+    spots += [("after:" + str(m), "After " + moving.label(p))
+              for m, p in enumerate(pieces)]
+    spots += [("onto:" + p, "Onto " + title) for p, title in others]
+    spots.append(("away", "Put them away"))
+    return ("<h2>Move the picked ones together</h2>\n"
+            '<form method="post" action="/movepieces" id="bulk">\n<fieldset>\n'
+            "<legend>The picked ones</legend>\n"
+            '<input type="hidden" name="page" value="'
+            + html.escape(page_rel, quote=True) + '">\n'
+            '<input type="hidden" name="seen" value="' + seen + '">\n'
+            "<p>First, tick Pick this one on each piece you want to move.</p>\n"
+            '<label for="bulk-to">Move them to</label>\n'
+            '<select id="bulk-to" name="to">\n'
+            '<option value="">(choose where)</option>\n'
+            + links._options(spots) + "\n</select>\n"
+            '<label for="bulk-new">or onto a new page called</label>\n'
+            '<input type="text" id="bulk-new" name="newpage" value="">\n'
+            "<p>Pressing this moves every picked one there, in the same order "
+            "as on the page. Nothing is lost.</p>\n"
+            '<button type="submit">Move the picked ones</button>\n'
+            "</fieldset>\n</form>")
+
+
+def empty_note(note, k, page_rel, seen):
+    """A note with nothing left in it, and the button that puts it away."""
+    return ('<form method="post" action="/movenote">\n<fieldset>\n'
+            "<legend>An empty note from "
+            + html.escape(note["when"] or "a day nobody wrote down")
+            + "</legend>\n"
+            '<input type="hidden" name="page" value="'
+            + html.escape(page_rel, quote=True) + '">\n'
+            '<input type="hidden" name="seen" value="' + seen + '">\n'
+            '<input type="hidden" name="n" value="' + str(k) + '">\n'
+            '<input type="hidden" name="to" value="away">\n'
+            '<input type="hidden" name="from" value="edit">\n'
+            "<p>Nothing is written in this note any more.</p>\n"
+            "<p>Pressing this puts the note away. It is kept safe, and you can "
+            "bring it back from the Put away page.</p>\n"
+            '<button type="submit">Put this note away</button>\n'
+            "</fieldset>\n</form>")
+
+
+def move_form(text, pieces, n, page_rel, others, seen, many=False):
+    """Moving one piece, right under it on the Edit page.
+
+    It sits inside the piece's own named group on the Edit page, so NVDA
+    has already said which piece. One list of everywhere it can go - on
+    this page, onto another page, or away - and one Move button, with a
+    sentence before it saying what pressing does. A heading
+    with writing under it has a tick box to take that along; left alone, a
+    heading moves by itself. It is a form of its own, so Enter in the new
+    page box presses Move.
+    """
+    me = "move" + str(n)
+    spots = [("top", "The top of this page"),
+             ("bottom", "The bottom of this page")]
+    spots += [("after:" + str(m), "After " + moving.label(p))
+              for m, p in enumerate(pieces) if m != n]
+    spots += [("onto:" + p, "Onto " + title) for p, title in others]
+    spots.append(("away", "Put it away"))
+    under = moving.section_end(text, pieces, n) - n
+    tick = ""
+    if under:
+        tick = ('<input type="checkbox" id="' + me + '-all" name="what" '
+                'value="section">\n'
+                '<label for="' + me + '-all">Take the ' + str(under)
+                + (" piece" if under == 1 else " pieces")
+                + " under it too</label>\n")
+    return ('<form method="post" action="/movepiece">\n'
+            '<input type="hidden" name="page" value="'
+            + html.escape(page_rel, quote=True) + '">\n'
+            '<input type="hidden" name="n" value="' + str(n) + '">\n'
+            '<input type="hidden" name="seen" value="' + seen + '">\n'
+            + (pick_box(n) if many else "")
+            + '<label for="' + me + '">Move it to</label>\n'
+            '<select id="' + me + '" name="to">\n'
+            '<option value="">(choose where)</option>\n'
+            + links._options(spots) + "\n</select>\n" + tick
+            + '<label for="' + me + '-new">or onto a new page called</label>\n'
+            '<input type="text" id="' + me + '-new" name="newpage" value="">\n'
+            "<p>Pressing this moves it where you chose. If you chose Put it "
+            "away, it is kept safe and you can bring it back.</p>\n"
+            '<button type="submit">Move</button>\n</form>')
+
+
 def pieces_page(root, page_rel, said=""):
     """The page as its pieces, each in a box holding only words.
 
@@ -387,38 +492,65 @@ def pieces_page(root, page_rel, said=""):
     if said:
         parts.append('<p id="said">' + html.escape(said) + "</p>")
     found = editing.blocks(text)
+    seen = notes.fingerprint(text)
+    others = [(p, links.title_of(root, p) + " - " + p)
+              for p in links.pages(root) if p != page_rel]
     parts.append("<p>Every piece of " + html.escape(page_rel)
                  + " is below. Change the words in any box and press the "
                  "button under it. Nothing else on the page is touched.</p>")
     if not found:
         parts.append("<p>There is nothing written on this page yet.</p>")
+    many = len(found) > 1
+    at_part = {}
     for n, tag, _attrs, inner, _s, _e in found:
+        at_part[n] = len(parts)
         me = "piece" + str(n)
         what = "Heading" if tag.startswith("h") else (
             "List" if tag in ("ul", "ol") else "Paragraph")
+        # One group per piece, named after it, the way Loose ends names
+        # each flag. Everything you can do to this piece is inside it, so
+        # NVDA says which piece once, on the way in.
+        group = ("<h2>" + what + "</h2>\n<fieldset>\n<legend>"
+                 + html.escape(moving.label(found[n], most=8)) + "</legend>\n")
+        moves = move_form(text, found, n, page_rel, others, seen, many)
         if not editing.simple_enough(inner):
             parts.append(
-                "<h2>" + what + "</h2>\n<p>"
+                group + "<p>"
                 + html.escape(editing.as_words(inner)) + "</p>\n"
                 "<p>This one has something in it that plain words cannot "
                 "carry, so changing it here would lose that. Use the "
                 'whole-page editor for it: <a href="/edit?page='
                 + html.escape(quote(page_rel), quote=True)
-                + '&amp;raw=1">show the page as it really is</a>.</p>')
+                + '&amp;raw=1">show the page as it really is</a>.</p>\n'
+                + moves + "\n</fieldset>")
             continue
         parts.append(
-            '<form method="post" action="/editpiece">\n'
-            "<h2>" + what + "</h2>\n"
+            group
+            + '<form method="post" action="/editpiece">\n'
             '<input type="hidden" name="page" value="'
             + html.escape(page_rel, quote=True) + '">\n'
             '<input type="hidden" name="n" value="' + str(n) + '">\n'
             '<label for="' + me + '">The words</label>\n'
             '<textarea id="' + me + '" name="words" rows="4">'
             + html.escape(editing.as_words(inner)) + "</textarea>\n"
+            "<p>Pressing this saves your new words in place of the old ones. "
+            "Nothing else on the page changes.</p>\n"
             '<button type="submit">Save this piece</button>\n</form>\n'
             '<p><a href="/add?page='
             + html.escape(quote(page_rel), quote=True) + '&amp;after='
-            + str(n) + '">Add something after this piece</a></p>')
+            + str(n) + '">Add something after this piece</a></p>\n'
+            + moves + "\n</fieldset>")
+    # A note left with nothing in it has no pieces, so it would otherwise
+    # be invisible here. It is shown where it sits on the page. Put in
+    # from the last one back, so each goes in before the pieces after it.
+    for k, note in reversed(list(enumerate(notes.find(text)))):
+        if note["words"]:
+            continue
+        later = [n for n, _t, _a, _i, s, _e in found if s > note["start"]]
+        parts.insert(at_part[later[0]] if later else len(parts),
+                     empty_note(note, k, page_rel, seen))
+    if many:
+        parts.append(bulk_form(found, page_rel, others, seen))
     parts.append('<h2>Other ways in</h2>\n<ul>\n'
                  '<li><a href="/add?page='
                  + html.escape(quote(page_rel), quote=True)
@@ -611,34 +743,37 @@ def notes_page(root, page_rel, said=""):
                      + ", so there is nothing to move it past.</p>")
     else:
         parts.append(
-            "<p>There are " + str(len(found)) + " notes on "
-            + html.escape(page_rel) + ". A note moves as one piece: its date "
-            "and everything written under it. Nothing else on the page "
-            "changes.</p>")
+            "<p>There are " + str(len(found)) + " notes on this page. A note "
+            "moves as one piece, with its date and everything written in it. "
+            "Nothing else on the page changes.</p>")
         parts.append(
             '<form method="post" action="/sortnotes">\n<fieldset>\n'
             "<legend>Put every note in date order</legend>\n" + keep
-            + '<button type="submit" name="order" value="newest">Newest '
+            + "<p>Pressing one of these puts every note in date order, with "
+            "the newest or the oldest first. Nothing is lost.</p>\n"
+            '<button type="submit" name="order" value="newest">Newest '
             "first</button>\n"
             '<button type="submit" name="order" value="oldest">Oldest '
             "first</button>\n</fieldset>\n</form>")
+        # One group per note, named after it, the way Loose ends names
+        # each flag, so NVDA says which note before its box.
         for n, note in enumerate(found):
             me = "to" + str(n)
-            called = ("the " + note["when"] + " note" if note["when"]
-                      else "this note")
             parts.append(
-                '<form method="post" action="/movenote">\n'
-                "<h2>" + html.escape(notes.label(note)) + "</h2>\n" + keep
+                '<form method="post" action="/movenote">\n<fieldset>\n'
+                "<legend>" + html.escape(notes.label(note)) + "</legend>\n"
+                + keep
                 + '<input type="hidden" name="n" value="' + str(n) + '">\n'
-                '<label for="' + me + '">Move ' + html.escape(called)
-                + " to</label>\n"
+                '<label for="' + me + '">Move this note to</label>\n'
                 '<select id="' + me + '" name="to">\n'
                 '<option value="">(choose where)</option>\n'
                 + "".join('<option value="' + html.escape(v, quote=True)
                           + '">' + html.escape(w) + "</option>\n"
                           for v, w in notes.choices(found, n))
                 + "</select>\n"
-                '<button type="submit">Move</button>\n</form>')
+                "<p>Pressing this moves the note where you chose. If you chose "
+                "Put it away, it is kept safe and you can bring it back.</p>\n"
+                '<button type="submit">Move</button>\n</fieldset>\n</form>')
 
     if (root / (page_rel + ".bak")).exists():
         parts.append(
@@ -654,6 +789,116 @@ def notes_page(root, page_rel, said=""):
                  + '">Back to the page itself</a></p>')
     return frame("Moving notes on " + html.escape(page_rel),
                  "\n\n".join(parts))
+
+
+def _bring_page_form(root, kept, me, folder=""):
+    """One put-away page, in a group named after it, and the box saying
+    where it comes back to."""
+    was = restore.original(kept)
+    return ('<form method="post" action="/bringback">\n<fieldset>\n'
+            "<legend>" + html.escape(links.title_of(root, kept))
+            + "</legend>\n"
+            '<input type="hidden" name="kind" value="page">\n'
+            '<input type="hidden" name="item" value="'
+            + html.escape(kept, quote=True) + '">\n'
+            '<input type="hidden" name="folder" value="'
+            + html.escape(folder, quote=True) + '">\n'
+            '<label for="' + me + '">Bring it back to</label>\n'
+            '<input type="text" id="' + me + '" name="to" value="'
+            + html.escape(was, quote=True) + '">\n'
+            "<p>Pressing this brings the page back. The box already says where "
+            "it used to be. You can change that first if you like.</p>\n"
+            '<button type="submit">Bring it back</button>\n'
+            "</fieldset>\n</form>")
+
+
+def putaway_page(root, said="", folder=""):
+    """Everything that was put away, each with a button to bring it back.
+
+    With a folder named, the pages in that one put-away folder, so a folder
+    of hundreds is one line on the main list rather than hundreds.
+    """
+    parts = ['<p id="said">' + html.escape(said) + "</p>"] if said else []
+    if folder:
+        kept = restore.in_folder(root, folder)
+        back = '<p><a href="/putaway">Back to everything put away</a></p>'
+        if not kept:
+            parts.append("<p>Nothing is left in a put-away folder called "
+                         + html.escape(folder) + ".</p>\n" + back)
+            return frame("Put away: " + html.escape(folder), "\n\n".join(parts))
+        parts.append("<p>There " + ("is 1 page" if len(kept) == 1 else
+                     "are " + str(len(kept)) + " pages")
+                     + " in the put-away folder " + html.escape(folder)
+                     + ". Each one can come back on its own.</p>")
+        parts += [_bring_page_form(root, k, "page" + str(i), folder)
+                  for i, k in enumerate(kept)]
+        parts.append(back)
+        return frame("Put away: " + html.escape(folder), "\n\n".join(parts))
+
+    words = restore.writing(root)
+    pages, folders = restore.top(root)
+    if not (words or pages or folders):
+        parts.append("<p>Nothing is put away right now. When something is put "
+                     "away, it waits here safely until you bring it back.</p>")
+        return frame("Put away", "\n\n".join(parts))
+    parts.append("<p>These were put away to keep them safe. Nothing here is "
+                 "gone. You can bring any of them back.</p>")
+
+    every = [(p, links.title_of(root, p) + " - " + p)
+             for p in links.pages(root)]
+    if words:
+        parts.append("<h2>Writing</h2>")
+    for i, w in enumerate(words):
+        me = "writing" + str(i)
+        came = w["page"] if w["page"] and (root / w["page"]).is_file() else ""
+        first = w["words"].split()
+        picks = ([(came, "The page it came from: "
+                   + links.title_of(root, came) + " - " + came)]
+                 if came else [("", "(choose a page)")])
+        picks += [(p, t) for p, t in every if p != came]
+        parts.append(
+            '<form method="post" action="/bringback">\n<fieldset>\n'
+            "<legend>" + html.escape(" ".join(first[:12])
+                                     or "Writing with no words in it")
+            + "</legend>\n"
+            '<input type="hidden" name="kind" value="writing">\n'
+            '<input type="hidden" name="item" value="'
+            + html.escape(w["kept"], quote=True) + '">\n'
+            "<p>It came from "
+            + html.escape(links.title_of(root, came) if came
+                          else "a page that is not here any more")
+            + "." + (" It was put away on " + html.escape(w["when"]) + "."
+                     if w["when"] else "") + "</p>\n"
+            '<label for="' + me + '">Bring it back onto</label>\n'
+            '<select id="' + me + '" name="target">\n'
+            + links._options(picks) + "\n</select>\n"
+            '<label for="' + me + '-new">or onto a new page called</label>\n'
+            '<input type="text" id="' + me + '-new" name="newpage" value="">\n'
+            "<p>Pressing this puts it back at the bottom of that page.</p>\n"
+            '<button type="submit">Bring it back</button>\n'
+            "</fieldset>\n</form>")
+    if pages:
+        parts.append("<h2>Pages</h2>")
+        parts += [_bring_page_form(root, k, "page" + str(i))
+                  for i, k in enumerate(pages)]
+    if folders:
+        parts.append("<h2>Folders</h2>")
+    for name, size in folders:
+        parts.append(
+            '<form method="post" action="/bringback">\n<fieldset>\n'
+            "<legend>" + html.escape(name) + "</legend>\n"
+            '<input type="hidden" name="kind" value="folder">\n'
+            '<input type="hidden" name="item" value="'
+            + html.escape(name, quote=True) + '">\n'
+            "<p>A folder with " + str(size)
+            + (" page" if size == 1 else " pages") + ' in it. <a '
+            'href="/putaway?folder=' + html.escape(quote(name), quote=True)
+            + '">See its pages one at a time</a>.</p>\n'
+            "<p>Pressing this brings back the whole folder, with everything "
+            "in it.</p>\n"
+            '<button type="submit">Bring the whole folder back</button>\n'
+            "</fieldset>\n</form>")
+    return frame("Put away", "\n\n".join(parts))
 
 
 def remove_page(root, page_rel, said=""):
@@ -680,7 +925,7 @@ def remove_page(root, page_rel, said=""):
 
 <p>Nothing is destroyed. The page is moved into <code>_deleted</code>,
 which is not served, not searched and not in any list. Getting it back
-is moving it out again by hand.</p>
+is one button, on the Put away page.</p>
 
 <form method="post" action="/removepage">
 <input type="hidden" name="page" value="'''
@@ -805,23 +1050,103 @@ def new_page_form(where=""):
             "</fieldset>\n</form>")
 
 
-def search_page(root, query):
-    found = hits(root, query)
+def search_page(root, query, together=False, folder="", kind="", start="",
+                end="", page=""):
+    """Find something: the words, and what to narrow them down by.
+
+    folder is "" for every folder, "/" for only the top one, or a name.
+    start and end are dates as a date box sends them. page is one page's
+    address, or "" for any page.
+    """
+    every = [(p, links.title_of(root, p) + " - " + p)
+             for p in links.pages(root)]
+    page = page if page in dict(every) else ""
+    trouble, days = [], []
+    for called, value in (("first", start), ("last", end)):
+        day = _day(value)
+        if day is False:
+            trouble.append("<p>The " + called + " date could not be read as a "
+                           "date, so it was left out.</p>")
+            day = None
+        days.append(day)
+    first, last = days
+    in_folder = None if not folder else ("" if folder == "/" else folder)
+    kinds = [(k, links.title_of(root, k + "/index.html")
+              if (root / k / "index.html").is_file() else k)
+             for k in kinds_in(root)]
+    kind = kind if kind in dict(kinds) else ""
+    found = hits(root, query, together=together, folder=in_folder, kind=kind,
+                 start=first, end=last, page=page)
+
+    places = [("", "Every folder"), ("/", "Only the top folder")]
+    places += [(f, f) for f in links.folders_in(root) if f]
     box = ('<form method="get" action="/search">\n'
            '<label for="q">Words to look for</label>\n'
            '<input type="search" id="q" name="q" value="'
            + html.escape(query, quote=True) + '">\n'
+           '<input type="checkbox" id="together" name="together" value="1"'
+           + (" checked" if together else "") + ">\n"
+           '<label for="together">Only where these words sit together, in '
+           "this order</label>\n"
+           "<fieldset>\n<legend>Narrow it down</legend>\n"
+           '<label for="on-page">On which page</label>\n'
+           '<select id="on-page" name="page">\n'
+           + links._options([("", "Any page")] + every, page)
+           + "\n</select>\n"
+           '<label for="in-folder">In which folder</label>\n'
+           '<select id="in-folder" name="folder">\n'
+           + links._options(places, folder) + "\n</select>\n"
+           '<label for="of-kind">Of which kind</label>\n'
+           '<select id="of-kind" name="kind">\n'
+           + links._options([("", "Any page, of a kind or not")] + kinds, kind)
+           + "\n</select>\n"
+           '<label for="from">Only notes written on or after</label>\n'
+           '<input type="date" id="from" name="from" value="'
+           + (first.isoformat() if first else "") + '">\n'
+           '<label for="to">and on or before</label>\n'
+           '<input type="date" id="to" name="to" value="'
+           + (last.isoformat() if last else "") + '">\n'
+           "<p>Leave any of these empty and it does not narrow by it. With a "
+           "date, only dated notes are searched.</p>\n"
+           "</fieldset>\n"
            '<button type="submit">Find them</button>\n</form>')
-    if not query:
+
+    when = ("from " + first.isoformat() + " to " + last.isoformat()
+            if first and last else "from " + first.isoformat() + " on"
+            if first else "up to " + last.isoformat() if last else "")
+    scope = []
+    if page:
+        scope.append("on the page " + links.title_of(root, page))
+    if in_folder == "":
+        scope.append("in the top folder")
+    elif in_folder:
+        scope.append("in the folder " + in_folder)
+    if kind:
+        scope.append("among " + dict(kinds)[kind] + " pages")
+    count = str(len(found)) + (" page" if len(found) == 1 else " pages")
+    # With one page chosen, "somewhere on the page" then "on the page"
+    # would be read out twice in one sentence.
+    where = ("together, in that order" if together
+             else "in any order" if page
+             else "somewhere on the page, in any order")
+    looked =", ".join([where] + (["in notes " + when] if when else []) + scope)
+    if not query.split() and not (when or scope):
         head = ("<p>Every page, " + str(len(found)) + " of them. Type "
                 "something above to narrow it down. Every page is read "
                 "each time you ask, so nothing here can be out of date.</p>")
+    elif not query.split():
+        head = ("<p>" + count + (" has" if len(found) == 1 else " have")
+                + " notes " + when + (", " if when and scope else "")
+                + ", ".join(scope) + ".</p>" if when else
+                "<p>" + count + (" is " if len(found) == 1 else " are ")
+                + ", ".join(scope) + ".</p>")
     elif found:
-        head = ("<p>" + str(len(found)) + (" page has" if len(found) == 1
-                else " pages have") + " those words in.</p>")
+        head = ("<p>" + count + (" has" if len(found) == 1 else " have")
+                + " those words " + looked + ".</p>")
     else:
-        head = ("<p>Nothing has those words in it. Nothing is hidden - "
-                "this read every page in the folder just now.</p>")
+        head = ("<p>Nothing has those words " + looked + ". Nothing is "
+                "hidden - this read every page in the folder just now.</p>")
+    head = "".join(trouble) + head
     rows = []
     for page_rel, title, lines in found:
         rows.append('<h3><a href="/' + html.escape(page_rel, quote=True)
@@ -862,6 +1187,11 @@ def fill_tidy(page_text, root):
             rows.append('<li><a href="/flags">Flagged</a> &mdash; %d thing%s '
                         "waiting to be pointed at a page.</li>"
                         % (waiting, "" if waiting == 1 else "s"))
+        away = restore.count(root)
+        if away:
+            rows.append('<li><a href="/putaway">Put away</a> &mdash; %d '
+                        "thing%s you can bring back.</li>"
+                        % (away, "" if away == 1 else "s"))
         rows.append('<li><a href="/search">Find something</a> by any word '
                     "in it.</li>")
         return m.group(1) + chr(10) + chr(10).join(rows) + chr(10) + "</ul>"
@@ -912,30 +1242,103 @@ def flags_page(root, said=""):
     return frame("Loose ends", "\n\n".join(parts) + "\n\n" + new_page_form())
 
 
-def hits(root, query, most=200):
+def kinds_in(root):
+    """Every kind, as its folder: a folder holding the shape its pages take."""
+    return sorted(p.parent.relative_to(root).as_posix()
+                  for p in root.rglob("_kind.html")
+                  if not any(part.startswith("_")
+                             for part in p.parent.relative_to(root).parts))
+
+
+def _day(text):
+    """A date typed or picked as year-month-day. None for nothing given,
+    False for something that is not a date."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except ValueError:
+        return False
+
+
+def hits(root, query, most=200, together=False, folder=None, kind="",
+         start=None, end=None, page=""):
     """[(page, title, [line, ...]), ...] - every page holding those words.
+
+    Every word has to be on the page somewhere, in any order, because
+    what you remember of something you wrote is rarely its exact wording.
+    A word also counts inside a longer one, so sing finds singing. With
+    together, the words have to sit side by side in the order typed.
+
+    Narrowed, when asked, to one page, to a folder (None is every folder,
+    "" is only the top one, a name is that folder and the folders inside
+    it), to one kind's pages, and to notes dated between start and end. Once a date
+    is given only dated notes are searched, since a date is a question
+    about when something was written and the rest of a page has none.
 
     Read off disk each time. The whole folder is a few hundred small
     files, which is nothing to read, and it means there is no index
     anywhere that can disagree with what is actually written.
     """
-    want = " ".join(query.split()).lower()
+    words = query.lower().split()
+    wanted = [" ".join(words)] if together and words else words
+    dated = start is not None or end is not None
     out = []
     for page_rel in links.pages(root):
+        if page and page_rel != page:
+            continue
+        where = page_rel.rsplit("/", 1)[0] if "/" in page_rel else ""
+        if folder == "" and where:
+            continue
+        if folder and not (where == folder or where.startswith(folder + "/")):
+            continue
+        if kind and (not page_rel.startswith(kind + "/")
+                     or page_rel == kind + "/index.html"):
+            continue
         text = links._read(root / page_rel)
         if text is None:
             continue
-        flat = links.plain(prose(text))
-        if not want:
-            out.append((page_rel, links.title_of(root, page_rel), []))
+        if dated:
+            chosen = []
+            for note in notes.find(text):
+                when = notes.moment(note)
+                if not when or (start and when.date() < start) or (
+                        end and when.date() > end):
+                    continue
+                chosen.append((note["when"] + " " + note["words"]).strip())
+            if not chosen:
+                continue
+            flat = " ".join(chosen)
+        else:
+            flat = links.plain(prose(text))
+        if not wanted:
+            out.append((page_rel, links.title_of(root, page_rel),
+                        [c[:180] for c in chosen[:3]] if dated else []))
             continue
         low = flat.lower()
-        at, lines = low.find(want), []
-        while at != -1 and len(lines) < 3:
-            lines.append(flat[max(0, at - 90):at + len(want) + 90].strip())
-            at = low.find(want, at + len(want))
-        if lines:
-            out.append((page_rel, links.title_of(root, page_rel), lines))
+        if not all(w in low for w in wanted):
+            continue
+        # A line around the first place each word is, then further places,
+        # up to three lines, never showing the same stretch twice.
+        spots, taken = [], []
+        for w in wanted:
+            spots.append((low.find(w), w))
+        for w in wanted:
+            at = low.find(w, low.find(w) + len(w))
+            while at != -1:
+                spots.append((at, w))
+                at = low.find(w, at + len(w))
+        lines = []
+        for at, w in spots:
+            if len(lines) == 3:
+                break
+            start, end = max(0, at - 90), at + len(w) + 90
+            if any(s <= at < e for s, e in taken):
+                continue
+            taken.append((start, end))
+            lines.append(flat[start:end].strip())
+        out.append((page_rel, links.title_of(root, page_rel), lines))
         if len(out) >= most:
             break
     return out
