@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notes</title>
+</head>
+<body>
+
+<h1>Notes</h1>
+
+<!--
+  An ordinary HTML page. Gut it, rewrite it, start from scratch - the
+  only three things that matter are marked ONE, TWO and THREE below.
+-->
+
+<!--
+  ONE. The form.
+
+  action="/save" is what sends it to the program instead of nowhere.
+  The hidden _to says which file to write into. Everything else is
+  yours: name the fields what you like, add as many as you want.
+-->
+<form method="post" action="/save">
+  <label for="note">Note</label>
+  <textarea id="note" name="note" rows="4"></textarea>
+
+  <input type="hidden" name="_to" value="index.html">
+
+  <button type="submit">Save it</button>
+</form>
+
+<!--
+  TWO. The shape each saved note takes.
+
+  The template element below is real HTML; browsers do not show what is
+  inside one. The program reads it out and fills in the blanks. {note}
+  is your field's name from the form above. {when} is always available.
+
+  Change any of this and the next thing you save comes out the new way.
+  Delete it entirely and you get a plain block instead.
+
+  (Written without the angle brackets on purpose. A comment containing
+  the literal tag would be found before the real element below it.)
+-->
+<template>
+  <div class="note">
+    <h3>{when}</h3>
+    <p>{note}</p>
+  </div>
+</template>
+
+<h2>Saved notes</h2>
+
+<!--
+  THREE. The marker. New notes go in directly after this line, so the
+  newest is at the top. Move it and they go to the new place.
+-->
+<!-- here -->
+
+</body>
+</html>

@@ -1,0 +1,31 @@
+# Things git should pretend it cannot see.
+# One per line. A trailing / means "that whole folder".
+
+# Python's own cache. Rebuilt automatically, means nothing to a person.
+__pycache__/
+
+# PyInstaller's workings and its output. Both come back from
+# `python -m PyInstaller Life_Web.spec`, so there is no reason to keep a
+# copy of an 8 MB program in here as well as on disk.
+build/
+dist/
+
+# The built program itself, and any kept-aside older one. Same reason.
+# The Forms names are what it was called before it was the life web.
+Life_Web.exe
+Life_Web.exe.*
+Forms.exe
+Forms.exe.*
+
+# The log the program writes beside itself when it runs from here.
+Life_Web.log
+Forms.log
+
+# Half-written files. links.py writes to a .tmp and renames, so one of
+# these lying about means something was interrupted.
+*.tmp
+
+# Private working notes: paths, personal context, session handoffs.
+# Never tracked. The public design notes are DESIGN.md.
+docs/private/
+HANDOFF.md
